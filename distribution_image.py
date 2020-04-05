@@ -9,26 +9,33 @@ from shutil import copyfile
 from pathlib import Path
 
 
-def predict(model, path_img):
-    datagen = ImageDataGenerator(
-        rescale=1. / 255,
-        featurewise_center=True,
-        featurewise_std_normalization=True)
-    img_height, img_width = 224, 224
-    batch_size = 40
-    datagen.mean = np.array([0.485, 0.456, 0.406])
-    datagen.std = np.array([0.229, 0.224, 0.225])
+def data_tf(path_img, BATCH_SIZE = 40):
+  AUTOTUNE=tf.data.experimental.AUTOTUNE
+  data_dir = Path(path_img)
+  list_ds = tf.data.Dataset.list_files(str(data_dir/'*/*'))
+  img_ds = list_ds.map(process_data, num_parallel_calls=AUTOTUNE)
 
-    datagen_generator = datagen.flow_from_directory(
-        path_img,
-        shuffle=False,
-        color_mode="rgb",
-        target_size=(img_height, img_width),
-        batch_size=batch_size,
-        class_mode='categorical',
-        subset='training')  # set as training data
+  ds = img_ds.batch(BATCH_SIZE)
+  ds = ds.prefetch(buffer_size=AUTOTUNE)
+  return ds
 
-    Y_pred = model.predict(datagen_generator)
+def decode_img(img):
+  img = tf.image.decode_jpeg(img, channels=3)
+  img = tf.image.convert_image_dtype(img, tf.float32)
+  return tf.image.resize(img, (img_height, img_width))
+
+def process_data(file_path):
+    img = tf.io.read_file(file_path)
+    img = decode_img(img)
+    return img
+
+
+def predict(model, path_img, img_size):
+    global img_height, img_width 
+    img_height, img_width = img_size
+    data = data_tf(path_img)
+
+    Y_pred = model.predict(data)
     y_pred = np.argmax(Y_pred, axis=1)
 
     TEST_DIR = Path(path_img)
